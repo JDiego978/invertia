@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-load_dotenv("../.env.local")
+load_dotenv("../.env.local")  # local dev; en Render las vars vienen del dashboard
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("invertia")
@@ -34,9 +34,16 @@ EXCHANGE_KEY     = os.getenv("EXCHANGE_RATE_API_KEY", "")
 
 # ─── FastAPI App ──────────────────────────────────────────────────────────────
 app = FastAPI(title="InvertIA Data Engine", version="1.0.0")
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "https://invertia-sigma.vercel.app",
+    # preview deployments de Vercel
+    "https://*.vercel.app",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_methods=["*"],
     allow_headers=["*"],
 )

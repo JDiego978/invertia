@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: invertia-backend
+    runtime: python
+    rootDir: services
+    buildCommand: pip install -r requirements-cloud.txt
+    startCommand: uvicorn data_engine:app --host 0.0.0.0 --port $PORT
+    plan: free
+    envVars:
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: FRED_API_KEY
+        sync: false
+      - key: REDDIT_CLIENT_ID
+        sync: false
+      - key: REDDIT_CLIENT_SECRET
+        sync: false

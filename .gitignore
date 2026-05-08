@@ -31,3 +31,5 @@ build/
 # HuggingFace cache (FinBERT ~440MB)
 .cache/
 transformers_cache/
+
+.vercel
