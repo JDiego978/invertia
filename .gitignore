@@ -1,0 +1,33 @@
+# Dependencias
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Next.js
+.next/
+out/
+.vercel/
+
+# Variables de entorno (NUNCA subir al repo)
+.env.local
+.env.*.local
+.env
+
+# Caché y logs
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Python cache
+*.egg-info/
+dist/
+build/
+
+# HuggingFace cache (FinBERT ~440MB)
+.cache/
+transformers_cache/
