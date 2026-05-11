@@ -1,6 +1,6 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
-yfinance==0.2.50
+yfinance>=0.2.54
 PyWavelets==1.7.0
 pandas==2.2.3
 numpy==1.26.4

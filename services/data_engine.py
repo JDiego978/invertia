@@ -21,6 +21,15 @@ from dotenv import load_dotenv
 
 load_dotenv("../.env.local")  # local dev; en Render las vars vienen del dashboard
 
+# Sesión HTTP con headers de navegador para evitar bloqueos de Yahoo Finance en cloud
+_yf_session = requests.Session()
+_yf_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip, deflate, br",
+})
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("invertia")
 
@@ -107,10 +116,19 @@ def calcular_bb(prices: pd.Series, window: int = 20):
     return sma + 2 * std, sma - 2 * std
 
 
+def _yf_ticker(ticker: str):
+    import yfinance as yf
+    t = yf.Ticker(ticker)
+    try:
+        t.session = _yf_session
+    except Exception:
+        pass
+    return t
+
+
 def get_stock_data(ticker: str, rf_rate_diaria: float = 0.000173) -> dict:
     try:
-        import yfinance as yf
-        stock = yf.Ticker(ticker)
+        stock = _yf_ticker(ticker)
         hist = stock.history(period="1y")
         if hist.empty:
             return _stock_fallback(ticker)
@@ -760,9 +778,10 @@ async def analyze(params: AnalysisParams):
 @app.get("/price/{ticker}")
 async def get_price(ticker: str):
     try:
-        import yfinance as yf
-        info = yf.Ticker(ticker).info
+        info = _yf_ticker(ticker).info
         precio = info.get("currentPrice") or info.get("regularMarketPrice")
+        if precio is None:
+            raise ValueError("sin precio")
         return {"ticker": ticker, "precio": precio}
     except Exception:
         raise HTTPException(status_code=404, detail="Ticker no encontrado")
