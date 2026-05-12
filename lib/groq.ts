@@ -419,19 +419,13 @@ async function callGroq(prompt: string, maxTokens: number): Promise<string> {
 
   let res = await tryModel(MODEL_PRIMARY);
 
-  // Si el modelo principal alcanzó el límite diario de tokens, usar el de fallback
+  // Cualquier 429 en el modelo principal → reintentar con fallback (8b tiene límites separados)
   if (res.status === 429) {
-    const errText = await res.text();
-    const isTPD = errText.includes("tokens per day") || errText.includes("TPD") || errText.includes("daily");
-    if (isTPD) {
-      console.warn("[InvertIA] TPD 70b agotado — usando fallback llama-3.1-8b-instant");
-      res = await tryModel(MODEL_FALLBACK);
-    }
-    if (!res.ok) {
-      const err2 = await res.text();
-      throw new Error(`Groq error ${res.status}: ${err2}`);
-    }
-  } else if (!res.ok) {
+    console.warn("[InvertIA] 429 en 70b — fallback a llama-3.1-8b-instant");
+    res = await tryModel(MODEL_FALLBACK);
+  }
+
+  if (!res.ok) {
     const err = await res.text();
     throw new Error(`Groq error ${res.status}: ${err}`);
   }
