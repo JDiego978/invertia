@@ -50,6 +50,22 @@ interface Props {
 export default function CardOportunidad({ oportunidad: op, moneda, onToggleComparar, enComparacion }: Props) {
   const [expandido, setExpandido] = useState(false);
 
+  // Normalizar riesgo: puede venir como número (1/2/3) o string
+  const riesgoNorm = (() => {
+    const r = String(op.riesgo).toLowerCase();
+    if (r === "1" || r === "bajo") return "bajo";
+    if (r === "3" || r === "alto") return "alto";
+    return "medio";
+  })();
+
+  // Normalizar consenso_agentes: corregir typos y variantes
+  const consensoNorm = (() => {
+    const c = String(op.consenso_agentes ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    if (c.includes("total")) return "total";
+    if (c.includes("dividido") || c.includes("dividiido")) return "dividido";
+    return "mayoría";
+  })();
+
   const tipoIcon: Record<string, string> = {
     accion: "📈", cripto: "🪙", etf: "📊",
     inmueble: "🏠", commodity: "🥇", bono: "🏦",
@@ -74,8 +90,8 @@ export default function CardOportunidad({ oportunidad: op, moneda, onToggleCompa
             <span className="text-xs text-slate-500 font-mono">{op.ticker}</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            <span className={`badge text-xs ${riesgoColor[op.riesgo]}`}>
-              {op.riesgo === "bajo" ? "🛡️" : op.riesgo === "medio" ? "⚖️" : "🚀"} {op.riesgo}
+            <span className={`badge text-xs ${riesgoColor[riesgoNorm]}`}>
+              {riesgoNorm === "bajo" ? "🛡️" : riesgoNorm === "medio" ? "⚖️" : "🚀"} {riesgoNorm}
             </span>
             <span className="badge bg-slate-700 text-slate-300 text-xs">
               {tendenciaIcon[op.tendencia]} {op.tendencia}
@@ -198,6 +214,13 @@ export default function CardOportunidad({ oportunidad: op, moneda, onToggleCompa
         </div>
       )}
 
+      {/* Badge sin validación histórica */}
+      {(!op.backtest?.señal_validada) && (
+        <div className="mb-3 rounded-lg border border-orange-500/30 bg-orange-500/5 px-3 py-1.5">
+          <p className="text-xs text-orange-400">⚠️ Sin validación histórica — señal no confirmada por backtest</p>
+        </div>
+      )}
+
       {/* Expandir — 3 Agentes */}
       <button
         onClick={() => setExpandido(!expandido)}
@@ -211,7 +234,7 @@ export default function CardOportunidad({ oportunidad: op, moneda, onToggleCompa
           {/* 3 Agentes */}
           <div>
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-              Análisis 3 Agentes — Consenso: {op.consenso_agentes}
+              Análisis 3 Agentes — Consenso: {consensoNorm}
             </p>
             <div className="space-y-2">
               <AgenteCard nombre="Agente Riesgo" texto={op.agente_riesgo} icono="🛡️" />

@@ -162,7 +162,7 @@ export default function AprenderPage() {
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
           <a href="/" className="text-xl font-black text-blue-400">InvertIA</a>
           <div className="flex items-center gap-1">
-            {[{ href: "/", label: "Análisis" }, { href: "/historial", label: "Historial" }, { href: "/portafolio", label: "Portafolio" }, { href: "/aprender", label: "Aprender" }].map((l) => (
+            {[{ href: "/", label: "Análisis" }, { href: "/historial", label: "Historial" }, { href: "/portafolio", label: "Portafolio" }, { href: "/precision", label: "Precisión 🎯" }, { href: "/aprender", label: "Aprender" }].map((l) => (
               <a key={l.href} href={l.href} className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-100 transition-colors rounded-lg hover:bg-slate-800">{l.label}</a>
             ))}
           </div>

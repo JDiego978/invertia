@@ -550,16 +550,27 @@ def calcular_kelly(win_rate: float, avg_win: float, avg_loss: float) -> float:
 # ─── Determinación de activos a analizar ─────────────────────────────────────
 ACTIVOS_POR_TIPO = {
     "accion": [
-        {"ticker": "AAPL",  "nombre": "Apple",   "tipo": "accion", "sector": "Tecnología"},
-        {"ticker": "NVDA",  "nombre": "NVIDIA",  "tipo": "accion", "sector": "Tecnología"},
-        {"ticker": "MSFT",  "nombre": "Microsoft","tipo": "accion", "sector": "Tecnología"},
-        {"ticker": "AMZN",  "nombre": "Amazon",  "tipo": "accion", "sector": "Consumo"},
-        {"ticker": "META",  "nombre": "Meta",    "tipo": "accion", "sector": "Tecnología"},
-        {"ticker": "TSLA",  "nombre": "Tesla",   "tipo": "accion", "sector": "Automotriz"},
-        {"ticker": "GOOGL", "nombre": "Alphabet","tipo": "accion", "sector": "Tecnología"},
-        {"ticker": "JPM",   "nombre": "JPMorgan","tipo": "accion", "sector": "Finanzas"},
-        {"ticker": "JNJ",   "nombre": "J&J",     "tipo": "accion", "sector": "Salud"},
-        {"ticker": "XOM",   "nombre": "ExxonMobil","tipo": "accion","sector": "Energía"},
+        {"ticker": "AAPL",  "nombre": "Apple",        "tipo": "accion", "sector": "Tecnología"},
+        {"ticker": "NVDA",  "nombre": "NVIDIA",        "tipo": "accion", "sector": "Tecnología"},
+        {"ticker": "MSFT",  "nombre": "Microsoft",     "tipo": "accion", "sector": "Tecnología"},
+        {"ticker": "AMZN",  "nombre": "Amazon",        "tipo": "accion", "sector": "Consumo"},
+        {"ticker": "META",  "nombre": "Meta",          "tipo": "accion", "sector": "Tecnología"},
+        {"ticker": "TSLA",  "nombre": "Tesla",         "tipo": "accion", "sector": "Automotriz"},
+        {"ticker": "GOOGL", "nombre": "Alphabet",      "tipo": "accion", "sector": "Tecnología"},
+        {"ticker": "JPM",   "nombre": "JPMorgan",      "tipo": "accion", "sector": "Finanzas"},
+        {"ticker": "JNJ",   "nombre": "J&J",           "tipo": "accion", "sector": "Salud"},
+        {"ticker": "XOM",   "nombre": "ExxonMobil",    "tipo": "accion", "sector": "Energía"},
+        # ADRs latinoamericanos (tickers verificados en yfinance/NYSE)
+        {"ticker": "CIB",   "nombre": "Bancolombia",   "tipo": "accion", "sector": "Finanzas",   "pais": "CO"},
+        {"ticker": "EC",    "nombre": "Ecopetrol",     "tipo": "accion", "sector": "Energía",    "pais": "CO"},
+        {"ticker": "AMXL.MX","nombre": "América Móvil","tipo": "accion", "sector": "Telecom",    "pais": "MX"},
+        {"ticker": "WALMEX.MX","nombre": "Walmart MX", "tipo": "accion", "sector": "Consumo",    "pais": "MX"},
+        {"ticker": "VALE",  "nombre": "Vale",          "tipo": "accion", "sector": "Minería",    "pais": "BR"},
+        {"ticker": "PBR",   "nombre": "Petrobras",     "tipo": "accion", "sector": "Energía",    "pais": "BR"},
+        {"ticker": "ITUB",  "nombre": "Itaú Unibanco", "tipo": "accion", "sector": "Finanzas",   "pais": "BR"},
+        {"ticker": "BSAC",  "nombre": "Banco Santander Chile","tipo": "accion","sector": "Finanzas","pais": "CL"},
+        {"ticker": "SQM",   "nombre": "SQM (Litio)",   "tipo": "accion", "sector": "Minería",    "pais": "CL"},
+        {"ticker": "BAP",   "nombre": "Credicorp",     "tipo": "accion", "sector": "Finanzas",   "pais": "PE"},
     ],
     "cripto": [
         {"ticker": "BTC", "coin_id": "bitcoin",  "nombre": "Bitcoin",  "tipo": "cripto"},
@@ -591,14 +602,30 @@ SECTOR_FILTER = {
 def determinar_activos(params: AnalysisParams) -> list:
     activos = []
     max_por_tipo = 3 if params.modo == "rapido" else 4
+    pais = params.pais.upper()
+
     for tipo in params.tipos:
         lista = ACTIVOS_POR_TIPO.get(tipo, [])
+
+        # Para acciones: priorizar activos del país del usuario, luego globales
+        if tipo == "accion":
+            pais_especificos = [a for a in lista if a.get("pais") == pais]
+            globales = [a for a in lista if "pais" not in a]
+            # Si hay activos locales, incluir primero 1-2 locales + resto globales
+            if pais_especificos:
+                lista = pais_especificos[:2] + globales
+            else:
+                lista = globales
+
         if params.sectores:
             tickers_sector = []
             for s in params.sectores:
                 tickers_sector.extend(SECTOR_FILTER.get(s, []))
-            lista = [a for a in lista if a["ticker"] in tickers_sector] or lista
+            filtrada = [a for a in lista if a["ticker"] in tickers_sector]
+            lista = filtrada if filtrada else lista
+
         activos.extend(lista[:max_por_tipo])
+
     return activos[:8]
 
 # ─── Endpoint principal ───────────────────────────────────────────────────────

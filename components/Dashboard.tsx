@@ -36,7 +36,7 @@ export default function Dashboard({ onNuevoAnalisis }: Props) {
     });
 
     // Fear & Greed
-    fetch("https://api.alternative.me/fng/")
+    fetch("https://api.alternative.me/fng/", { signal: AbortSignal.timeout(8_000) })
       .then((r) => r.json())
       .then((d) => {
         setFearGreed({
@@ -46,8 +46,8 @@ export default function Dashboard({ onNuevoAnalisis }: Props) {
       })
       .catch(() => {});
 
-    // Tasas de cambio (sin API key, usando exchangerate gratuito)
-    fetch("https://open.er-api.com/v6/latest/USD")
+    // Tasas de cambio
+    fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(8_000) })
       .then((r) => r.json())
       .then((d) => {
         if (!d.rates) return;

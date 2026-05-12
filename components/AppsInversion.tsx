@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { AppInversion } from "@/lib/types";
+import { getPais } from "@/lib/currency";
 
 const APPS_DEFAULT: AppInversion[] = [
   {
@@ -80,16 +81,30 @@ export default function AppsInversion({ apps, pais }: Props) {
   const [expandida, setExpandida] = useState<string | null>(null);
   const listaApps = apps && apps.length > 0 ? apps : APPS_DEFAULT;
 
-  const filtradas = pais
-    ? listaApps.filter((a) => a.disponible_en.some((p) => p.toLowerCase().includes(pais.toLowerCase())))
+  // Resolver código ISO a nombre de país para filtrar correctamente
+  const nombrePais = pais ? getPais(pais).nombre : null;
+
+  const filtradas = nombrePais
+    ? listaApps.filter((a) =>
+        a.disponible_en.some((p) =>
+          p.toLowerCase().includes(nombrePais.toLowerCase()) ||
+          p.toLowerCase() === "global" ||
+          p.toLowerCase().includes("latam")
+        )
+      )
     : listaApps;
 
-  const ordenadas = [...filtradas].sort((a, b) => b.puntuacion - a.puntuacion);
+  // Si el filtro dejó 0 resultados (apps de Groq no coincidieron), usar las default filtradas
+  const appsFinales = filtradas.length > 0 ? filtradas : APPS_DEFAULT.filter((a) =>
+    nombrePais ? a.disponible_en.some((p) => p.toLowerCase().includes(nombrePais.toLowerCase()) || p.toLowerCase() === "global") : true
+  );
+
+  const ordenadas = [...appsFinales].sort((a, b) => b.puntuacion - a.puntuacion);
 
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-400">
-        Apps recomendadas ordenadas por puntuación{pais ? ` disponibles en ${pais}` : ""}.
+        Apps recomendadas ordenadas por puntuación{nombrePais ? ` disponibles en ${nombrePais}` : ""}.
       </p>
       {ordenadas.map((app) => (
         <div key={app.nombre} className="card p-4">

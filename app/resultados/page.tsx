@@ -225,6 +225,7 @@ export default function ResultadosPage() {
               { href: "/", label: "Análisis" },
               { href: "/historial", label: "Historial" },
               { href: "/portafolio", label: "Portafolio" },
+              { href: "/precision", label: "Precisión 🎯" },
               { href: "/aprender", label: "Aprender" },
             ].map((l) => (
               <a key={l.href} href={l.href}

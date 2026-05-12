@@ -1,26 +1,27 @@
 "use client";
 
 import { openDB, type IDBPDatabase } from "idb";
-import type { ResultadoAnalisis, EntradaPortafolio, Alerta } from "./types";
+import type { ResultadoAnalisis, EntradaPortafolio, Alerta, Prediccion } from "./types";
 
 const DB_NAME = "invertia-db";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
 function getDB() {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains("historial")) {
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
           const histStore = db.createObjectStore("historial", { keyPath: "id" });
           histStore.createIndex("timestamp", "timestamp");
-        }
-        if (!db.objectStoreNames.contains("portafolio")) {
           db.createObjectStore("portafolio", { keyPath: "id" });
-        }
-        if (!db.objectStoreNames.contains("alertas")) {
           db.createObjectStore("alertas", { keyPath: "id" });
+        }
+        if (oldVersion < 2) {
+          const predStore = db.createObjectStore("predicciones", { keyPath: "id" });
+          predStore.createIndex("fecha_prediccion", "fecha_prediccion");
+          predStore.createIndex("ticker", "ticker");
         }
       },
     });
@@ -85,4 +86,52 @@ export async function obtenerAlertas(): Promise<Alerta[]> {
 export async function eliminarAlerta(id: string): Promise<void> {
   const db = await getDB();
   await db.delete("alertas", id);
+}
+
+// ─── Predicciones ────────────────────────────────────────────────────────────
+
+export async function guardarPrediccion(prediccion: Prediccion): Promise<void> {
+  const db = await getDB();
+  await db.put("predicciones", prediccion);
+}
+
+export async function obtenerPredicciones(): Promise<Prediccion[]> {
+  const db = await getDB();
+  const items = await db.getAllFromIndex("predicciones", "fecha_prediccion");
+  return items.reverse();
+}
+
+export async function actualizarPrediccion(prediccion: Prediccion): Promise<void> {
+  const db = await getDB();
+  await db.put("predicciones", prediccion);
+}
+
+// ─── Límite diario de análisis ───────────────────────────────────────────────
+
+const LIMITE_RAPIDO = 20;
+const LIMITE_PROFUNDO = 5;
+
+function claveHoy(tipo: string) {
+  return `limite_${tipo}_${new Date().toISOString().slice(0, 10)}`;
+}
+
+export function obtenerContadorHoy(tipo: "rapido" | "profundo"): number {
+  if (typeof window === "undefined") return 0;
+  return parseInt(localStorage.getItem(claveHoy(tipo)) ?? "0", 10);
+}
+
+export function incrementarContador(tipo: "rapido" | "profundo"): void {
+  if (typeof window === "undefined") return;
+  const actual = obtenerContadorHoy(tipo);
+  localStorage.setItem(claveHoy(tipo), String(actual + 1));
+}
+
+export function limiteSuperado(tipo: "rapido" | "profundo"): boolean {
+  const limite = tipo === "rapido" ? LIMITE_RAPIDO : LIMITE_PROFUNDO;
+  return obtenerContadorHoy(tipo) >= limite;
+}
+
+export function analisisRestantes(tipo: "rapido" | "profundo"): number {
+  const limite = tipo === "rapido" ? LIMITE_RAPIDO : LIMITE_PROFUNDO;
+  return Math.max(0, limite - obtenerContadorHoy(tipo));
 }

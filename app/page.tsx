@@ -4,8 +4,15 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Dashboard from "@/components/Dashboard";
 import SelectorParametros from "@/components/SelectorParametros";
-import { obtenerHistorial, guardarAnalisis } from "@/lib/storage";
-import type { ParametrosAnalisis } from "@/lib/types";
+import {
+  obtenerHistorial,
+  guardarAnalisis,
+  guardarPrediccion,
+  limiteSuperado,
+  incrementarContador,
+  analisisRestantes,
+} from "@/lib/storage";
+import type { ParametrosAnalisis, Prediccion } from "@/lib/types";
 
 type Vista = "dashboard" | "formulario";
 
@@ -15,22 +22,45 @@ export default function Home() {
   const [tieneHistorial, setTieneHistorial] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restantesRapido, setRestantesRapido] = useState(20);
+  const [restantesProfundo, setRestantesProfundo] = useState(5);
+  const [segundos, setSegundos] = useState(0);
+  const [pasoActual, setPasoActual] = useState(0);
 
   useEffect(() => {
     obtenerHistorial().then((h) => {
       setTieneHistorial(h.length > 0);
       setVista(h.length > 0 ? "dashboard" : "formulario");
     });
+    setRestantesRapido(analisisRestantes("rapido"));
+    setRestantesProfundo(analisisRestantes("profundo"));
   }, []);
 
   async function handleAnalizar(params: ParametrosAnalisis) {
+    const tipo = params.modo === "profundo" ? "profundo" : "rapido";
+
+    if (limiteSuperado(tipo)) {
+      setError(`Límite diario alcanzado (${tipo === "rapido" ? 20 : 5} análisis). Resetea mañana.`);
+      return;
+    }
+
     setCargando(true);
     setError(null);
+    setSegundos(0);
+    setPasoActual(0);
+
+    const timer = setInterval(() => setSegundos((s) => s + 1), 1000);
+    const pasos = [0, 1, 2, 3, 5];
+    const pasoTimers = pasos.map((t, i) =>
+      setTimeout(() => setPasoActual(i), t * 1000)
+    );
+
     try {
       const res = await fetch("/api/analizar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params),
+        signal: AbortSignal.timeout(55_000),
       });
 
       if (!res.ok) {
@@ -40,10 +70,34 @@ export default function Home() {
 
       const resultado = await res.json();
       const id = await guardarAnalisis(resultado);
+      incrementarContador(tipo);
+
+      // Guardar predicciones para tracking de precisión
+      for (const op of resultado.oportunidades ?? []) {
+        if (op.ticker && op.puntuacion_final != null) {
+          const pred: Prediccion = {
+            id: `pred-${Date.now()}-${op.ticker}`,
+            fecha_prediccion: new Date().toISOString(),
+            ticker: op.ticker,
+            tipo: op.tipo,
+            nombre: op.nombre,
+            precio_al_predecir: op.tecnico?.precio_actual ?? 0,
+            prediccion_direccion: op.tendencia === "alcista" ? "alcista" : op.tendencia === "bajista" ? "bajista" : "neutral",
+            puntuacion_sistema: op.puntuacion_final,
+            nivel_confianza: op.nivel_confianza,
+          };
+          await guardarPrediccion(pred);
+        }
+      }
+
+      setRestantesRapido(analisisRestantes("rapido"));
+      setRestantesProfundo(analisisRestantes("profundo"));
       router.push(`/resultados?id=${id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error desconocido");
     } finally {
+      clearInterval(timer);
+      pasoTimers.forEach(clearTimeout);
       setCargando(false);
     }
   }
@@ -55,13 +109,14 @@ export default function Home() {
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xl font-black text-blue-400">InvertIA</span>
-            <span className="badge bg-blue-500/20 text-blue-300 text-xs">Beta</span>
+            <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full">Beta</span>
           </div>
           <div className="flex items-center gap-1">
             {[
               { href: "/", label: "Análisis" },
               { href: "/historial", label: "Historial" },
               { href: "/portafolio", label: "Portafolio" },
+              { href: "/precision", label: "Precisión 🎯" },
               { href: "/aprender", label: "Aprender" },
             ].map((l) => (
               <a
@@ -77,7 +132,6 @@ export default function Home() {
       </nav>
 
       <div className="max-w-6xl mx-auto px-4 py-8">
-        {/* Tabs dashboard/formulario */}
         {tieneHistorial && (
           <div className="flex gap-1 mb-6 rounded-xl bg-slate-800 p-1 w-fit">
             {(["dashboard", "formulario"] as Vista[]).map((v) => (
@@ -85,9 +139,7 @@ export default function Home() {
                 key={v}
                 onClick={() => setVista(v)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  vista === v
-                    ? "bg-slate-700 text-slate-100"
-                    : "text-slate-400 hover:text-slate-200"
+                  vista === v ? "bg-slate-700 text-slate-100" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
                 {v === "dashboard" ? "📊 Dashboard" : "🔍 Nuevo análisis"}
@@ -100,9 +152,6 @@ export default function Home() {
           <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
             <p className="text-sm text-red-300">
               <span className="font-semibold">Error: </span>{error}
-            </p>
-            <p className="text-xs text-red-400 mt-1">
-              Verifica que tu ANTHROPIC_API_KEY esté configurada en .env.local y el servidor Python esté corriendo.
             </p>
           </div>
         )}
@@ -121,14 +170,53 @@ export default function Home() {
                 </p>
               </div>
             )}
+
+            {/* Contador de análisis restantes */}
+            <div className="flex gap-3 text-xs text-slate-500">
+              <span>⚡ Rápidos hoy: <span className={restantesRapido <= 5 ? "text-yellow-400" : "text-slate-400"}>{restantesRapido} restantes</span></span>
+              <span>·</span>
+              <span>🔍 Profundos hoy: <span className={restantesProfundo <= 1 ? "text-yellow-400" : "text-slate-400"}>{restantesProfundo} restantes</span></span>
+            </div>
+
             <SelectorParametros onAnalizar={handleAnalizar} cargando={cargando} />
 
             {cargando && (
-              <div className="text-center space-y-2 animate-fade-in">
-                <div className="inline-flex items-center gap-3 text-slate-400 text-sm">
-                  <span className="inline-block w-5 h-5 border-2 border-slate-600 border-t-blue-400 rounded-full animate-spin" />
-                  Obteniendo datos del mercado y consultando a Claude...
+              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-5 space-y-4">
+                {/* Barra de progreso */}
+                <div className="w-full bg-slate-700 rounded-full h-1.5">
+                  <div
+                    className="h-1.5 rounded-full bg-blue-500 transition-all duration-1000"
+                    style={{ width: `${Math.min((segundos / 15) * 100, 95)}%` }}
+                  />
                 </div>
+                {/* Pasos animados */}
+                <div className="space-y-2">
+                  {[
+                    { icon: "📡", texto: "Conectando con el mercado..." },
+                    { icon: "📊", texto: "Obteniendo datos técnicos y fundamentales..." },
+                    { icon: "🧮", texto: "Calculando Sharpe, VaR y Kelly Criterion..." },
+                    { icon: "🤖", texto: "Consultando IA para análisis de 3 agentes..." },
+                    { icon: "✅", texto: "Procesando resultados..." },
+                  ].map((paso, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-center gap-2 text-sm transition-all duration-500 ${
+                        i === pasoActual
+                          ? "text-blue-300 font-medium"
+                          : i < pasoActual
+                          ? "text-slate-500 line-through"
+                          : "text-slate-600"
+                      }`}
+                    >
+                      <span>{paso.icon}</span>
+                      <span>{paso.texto}</span>
+                      {i === pasoActual && (
+                        <span className="inline-block w-3 h-3 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin ml-1" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500 text-right">{segundos}s</p>
               </div>
             )}
           </div>

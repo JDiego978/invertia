@@ -197,6 +197,27 @@ export interface ResumenPortafolio extends EntradaPortafolio {
   ganancia_pct?: number;
 }
 
+// Predicciones
+export interface Prediccion {
+  id: string;
+  fecha_prediccion: string;
+  ticker: string;
+  tipo: TipoActivo;
+  nombre: string;
+  precio_al_predecir: number;
+  prediccion_direccion: "alcista" | "bajista" | "neutral";
+  puntuacion_sistema: number;
+  nivel_confianza: string;
+  precio_a_7_dias?: number;
+  precio_a_30_dias?: number;
+  resultado_7d?: "correcto" | "incorrecto" | "neutral";
+  resultado_30d?: "correcto" | "incorrecto" | "neutral";
+  ganancia_perdida_pct_7d?: number;
+  ganancia_perdida_pct_30d?: number;
+  fecha_verificacion_7d?: string;
+  fecha_verificacion_30d?: string;
+}
+
 // Alertas
 export interface Alerta {
   id: string;

@@ -16,7 +16,7 @@ export async function fetchDataEngine(params: ParametrosAnalisis): Promise<unkno
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(50_000),
   });
 
   if (!res.ok) {
