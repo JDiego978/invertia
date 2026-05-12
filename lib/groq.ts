@@ -451,7 +451,8 @@ async function callGroq(prompt: string, maxTokens: number): Promise<string> {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+      "Content-Type": "application/json; charset=utf-8",
+      "Accept": "application/json; charset=utf-8",
     },
     signal: AbortSignal.timeout(50_000),
     body: JSON.stringify({
@@ -459,7 +460,13 @@ async function callGroq(prompt: string, maxTokens: number): Promise<string> {
       max_tokens: maxTokens,
       temperature: 0.5,
       response_format: { type: "json_object" },
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        {
+          role: "system",
+          content: "Responde siempre en español con caracteres UTF-8 correctos. Nunca uses entidades HTML ni codificación latin-1.",
+        },
+        { role: "user", content: prompt },
+      ],
     }),
   });
 
@@ -469,7 +476,18 @@ async function callGroq(prompt: string, maxTokens: number): Promise<string> {
   }
 
   const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? "";
+  const content = data.choices?.[0]?.message?.content ?? "";
+
+  // Reparar encoding roto (latin-1 interpretado como UTF-8: Ã³ → ó)
+  try {
+    const bytes = new Uint8Array(content.length);
+    for (let i = 0; i < content.length; i++) bytes[i] = content.charCodeAt(i);
+    const decoded = new TextDecoder("utf-8").decode(bytes);
+    // Solo usar si la decodificación mejoró el texto (tiene menos Ã)
+    if (decoded.includes("Ã") === false && content.includes("Ã")) return decoded;
+  } catch { /* ignorar — usar el original */ }
+
+  return content;
 }
 
 function parseGroqJSON(raw: string): Record<string, unknown> {
