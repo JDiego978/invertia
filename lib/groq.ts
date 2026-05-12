@@ -1,7 +1,8 @@
 import type { ParametrosAnalisis, ResultadoAnalisis, Oportunidad, DatosTecnicos, DatosCuantitativos, DatosFundamentales, AppInversion } from "./types";
 
 const GROQ_BASE = "https://api.groq.com/openai/v1";
-const MODEL = "llama-3.3-70b-versatile";
+const MODEL_PRIMARY = "llama-3.3-70b-versatile";
+const MODEL_FALLBACK = "llama-3.1-8b-instant";
 
 // ─── Apps hardcodeadas por país (verificadas, no inventadas por Groq) ─────────
 const APPS_POR_PAIS: Record<string, AppInversion[]> = {
@@ -212,79 +213,24 @@ function buildPromptInterpretacion(
   activosSanitizados: ReturnType<typeof sanitizarDatosEngine>[],
   macro: Record<string, unknown>
 ): string {
-  const resumenActivos = activosSanitizados.map((a) => {
-    const tec = a.tecnico;
-    const cuant = a.cuantitativo;
-    return `${a.ticker} (${a.nombre}): RSI=${tec?.rsi ?? "N/A"} ${tec?.rsi_señal ?? ""}, MACD=${tec?.macd_señal ?? "N/A"}, Sharpe=${cuant?.sharpe ?? "N/A"}, VaR=${cuant?.var_95 ?? "N/A"}%, Vol=${cuant?.volatilidad_anual ?? "N/A"}%, PER=${a.fundamental.per ?? "N/A"}, ROE=${a.fundamental.roe_pct ?? "N/A"}%, Score=${a.scorePy ?? "N/A"}/10, Kelly=${a.kellyPct}%`;
+  const activos = activosSanitizados.map((a) => {
+    const t = a.tecnico;
+    const c = a.cuantitativo;
+    return `${a.ticker}|${a.nombre}|RSI=${t?.rsi ?? "?"}(${t?.rsi_señal ?? "?"})|MACD=${t?.macd_señal ?? "?"}|Sh=${c?.sharpe ?? "?"}|VaR=${c?.var_95 ?? "?"}%|Vol=${c?.volatilidad_anual ?? "?"}%|PER=${a.fundamental.per ?? "?"}|ROE=${a.fundamental.roe_pct ?? "?"}%|Score=${a.scorePy ?? "?"}|Kelly=${a.kellyPct}%`;
   }).join("\n");
 
-  const macroStr = `Macro: inflacion=${macro.inflacion ?? "N/A"}%, tasa10y=${macro.tasa_10y ?? "N/A"}%, desempleo=${macro.desempleo ?? "N/A"}%, GDP=${macro.gdp_growth ?? "N/A"}%`;
+  return `Analista experto. Datos REALES ya calculados — solo escribe interpretaciones en español.
 
-  return `Eres un analista de inversiones experto. Genera interpretaciones textuales para estos activos con datos reales ya calculados.
+Contexto: ${params.pais} | ${params.riesgo} | ${params.horizonte} | ${params.moneda}
+Macro: inflacion=${macro.inflacion ?? "?"}% tasa10y=${macro.tasa_10y ?? "?"}% GDP=${macro.gdp_growth ?? "?"}%
 
-País: ${params.pais} | Perfil: ${params.riesgo} | Horizonte: ${params.horizonte} | Moneda: ${params.moneda}
-${macroStr}
+Activos:
+${activos}
 
-Activos con datos reales:
-${resumenActivos}
+JSON de respuesta:
+{"interpretaciones":[{"ticker":"XXXX","tendencia":"alcista|bajista|lateral","puntuacion_final":0-100,"nivel_confianza":"ALTA_CONVICCION|MODERADA|BAJA","consenso_agentes":"total|mayoria|dividido","señales_contradictorias":["s1"],"resumen":"2 oraciones","por_que_ahora":"cita RSI/Score","agente_riesgo":"cita VaR/Vol","agente_retorno":"cita Sharpe","agente_regimen":"contexto macro","tecnico_interpretacion":"1 oración RSI/MACD","cuantitativo_interpretacion":"1 oración Sharpe/VaR","fundamental_interpretacion":"1 oración PER/ROE","per_vs_sector":"barato|justo|caro","riesgo_activo":"bajo|medio|alto","pros":["p1","p2"],"contras":["c1"],"horizonte_recomendado":"corto|mediano|largo","porcentaje_portafolio":"5-10%","kelly_advertencia":"texto","eventos_futuros":[{"evento":"nombre","fecha":"YYYY-MM-DD","impacto":"alto|medio|bajo","dias_restantes":30,"direccion_historica":"sube X%"}],"insider_signal":"neutral|compra_leve|compra_fuerte|venta_leve|venta_fuerte","fondos_top":["Vanguard"]}],"resumen_mercado":"párrafo mercado","alerta_macro":null,"ciclo_economico":{"fase":"expansion|pico|contraccion|recuperacion","sectores_favorecidos":["s1"],"sectores_desfavorecidos":["s2"]},"por_sector":[{"sector":"nombre","emoji":"💻","mejor_activo":"TICK","razon_lider":"razón","puntuacion_sector":75,"tendencia_sector":"alcista","otros_destacados":["T2"],"riesgo_sector":"medio"}]}
 
-Para CADA ticker genera EXACTAMENTE (en JSON):
-{
-  "interpretaciones": [
-    {
-      "ticker": "XXXX",
-      "tendencia": "alcista|bajista|lateral",
-      "puntuacion_final": <número 0-100 basado en Score y datos>,
-      "nivel_confianza": "ALTA_CONVICCION|MODERADA|BAJA",
-      "consenso_agentes": "total|mayoria|dividido",
-      "señales_contradictorias": ["señal1", "señal2"],
-      "resumen": "2 oraciones sobre por qué es interesante ahora",
-      "por_que_ahora": "Razón específica con los datos reales (cita RSI, MACD o Score)",
-      "agente_riesgo": "Evaluación de riesgo citando VaR y volatilidad reales",
-      "agente_retorno": "Evaluación de retorno citando Sharpe y tendencia reales",
-      "agente_regimen": "Contexto macro y ciclo económico actual",
-      "tecnico_interpretacion": "Interpretación del RSI/MACD/BB en 1 oración",
-      "cuantitativo_interpretacion": "Interpretación del Sharpe/VaR en 1 oración",
-      "fundamental_interpretacion": "Interpretación del PER/ROE en 1 oración",
-      "per_vs_sector": "barato|justo|caro",
-      "riesgo_activo": "bajo|medio|alto",
-      "pros": ["pro1", "pro2", "pro3"],
-      "contras": ["contra1", "contra2"],
-      "horizonte_recomendado": "corto|mediano|largo",
-      "porcentaje_portafolio": "5-10%",
-      "kelly_advertencia": "Usar half-Kelly conservador",
-      "eventos_futuros": [{"evento": "...", "fecha": "YYYY-MM-DD", "impacto": "alto|medio|bajo", "dias_restantes": 30, "direccion_historica": "Sube X% promedio"}],
-      "insider_signal": "neutral|compra_leve|compra_fuerte|venta_leve|venta_fuerte",
-      "fondos_top": ["Vanguard", "BlackRock"]
-    }
-  ],
-  "resumen_mercado": "Párrafo sobre el contexto del mercado actual para ${params.pais}",
-  "alerta_macro": null,
-  "ciclo_economico": {
-    "fase": "expansion|pico|contraccion|recuperacion",
-    "sectores_favorecidos": ["sector1", "sector2"],
-    "sectores_desfavorecidos": ["sector3"]
-  },
-  "por_sector": [
-    {
-      "sector": "nombre",
-      "emoji": "💻",
-      "mejor_activo": "TICKER",
-      "razon_lider": "razón",
-      "puntuacion_sector": 75,
-      "tendencia_sector": "alcista|bajista|lateral",
-      "otros_destacados": ["TICK2"],
-      "riesgo_sector": "bajo|medio|alto"
-    }
-  ]
-}
-
-REGLAS CRÍTICAS:
-- consenso_agentes SOLO: "total", "mayoria" o "dividido" (sin tildes)
-- riesgo_activo SOLO: "bajo", "medio" o "alto" (nunca número)
-- puntuacion_final: si Score está disponible, usarlo * 10 como base
-- NO inventar tickers distintos a los proporcionados
-- Responde SOLO JSON, sin texto extra`;
+REGLAS: consenso_agentes sin tildes ("mayoria" no "mayoría") | riesgo_activo solo "bajo"/"medio"/"alto" | NO inventar tickers | Solo JSON`;
 }
 
 // ─── Ensamblador: combina datos engine + interpretaciones Groq ────────────────
@@ -442,35 +388,50 @@ function ensamblarResultado(
   };
 }
 
-// ─── Llamada a Groq ───────────────────────────────────────────────────────────
+// ─── Llamada a Groq (con fallback automático a 8b si 429 TPD en 70b) ─────────
 async function callGroq(prompt: string, maxTokens: number): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error("GROQ_API_KEY no configurada");
 
-  const res = await fetch(`${GROQ_BASE}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json; charset=utf-8",
-      "Accept": "application/json; charset=utf-8",
-    },
-    signal: AbortSignal.timeout(50_000),
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      temperature: 0.5,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: "Responde siempre en español con caracteres UTF-8 correctos. Nunca uses entidades HTML ni codificación latin-1.",
-        },
-        { role: "user", content: prompt },
-      ],
-    }),
-  });
+  const tryModel = async (model: string): Promise<Response> =>
+    fetch(`${GROQ_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json; charset=utf-8",
+        "Accept": "application/json; charset=utf-8",
+      },
+      signal: AbortSignal.timeout(50_000),
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        temperature: 0.5,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: "Responde siempre en español con caracteres UTF-8 correctos. Nunca uses entidades HTML ni codificación latin-1.",
+          },
+          { role: "user", content: prompt },
+        ],
+      }),
+    });
 
-  if (!res.ok) {
+  let res = await tryModel(MODEL_PRIMARY);
+
+  // Si el modelo principal alcanzó el límite diario de tokens, usar el de fallback
+  if (res.status === 429) {
+    const errText = await res.text();
+    const isTPD = errText.includes("tokens per day") || errText.includes("TPD") || errText.includes("daily");
+    if (isTPD) {
+      console.warn("[InvertIA] TPD 70b agotado — usando fallback llama-3.1-8b-instant");
+      res = await tryModel(MODEL_FALLBACK);
+    }
+    if (!res.ok) {
+      const err2 = await res.text();
+      throw new Error(`Groq error ${res.status}: ${err2}`);
+    }
+  } else if (!res.ok) {
     const err = await res.text();
     throw new Error(`Groq error ${res.status}: ${err}`);
   }
@@ -483,7 +444,6 @@ async function callGroq(prompt: string, maxTokens: number): Promise<string> {
     const bytes = new Uint8Array(content.length);
     for (let i = 0; i < content.length; i++) bytes[i] = content.charCodeAt(i);
     const decoded = new TextDecoder("utf-8").decode(bytes);
-    // Solo usar si la decodificación mejoró el texto (tiene menos Ã)
     if (decoded.includes("Ã") === false && content.includes("Ã")) return decoded;
   } catch { /* ignorar — usar el original */ }
 

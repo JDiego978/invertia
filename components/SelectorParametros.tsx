@@ -37,8 +37,21 @@ export default function SelectorParametros({ onAnalizar, cargando }: Props) {
   const [sectores, setSectores] = useState<string[]>([]);
   const [riesgo, setRiesgo] = useState<"conservador" | "moderado" | "agresivo">("moderado");
   const [horizonte, setHorizonte] = useState<"corto" | "mediano" | "largo">("mediano");
-  const [monto, setMonto] = useState<string>("");
+  const [montoDisplay, setMontoDisplay] = useState<string>("");
+  const [montoValor, setMontoValor] = useState<number | undefined>(undefined);
   const [modo, setModo] = useState<ModoAnalisis>("rapido");
+
+  function handleMontoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value.replace(/\D/g, ""); // solo dígitos
+    if (raw === "") {
+      setMontoDisplay("");
+      setMontoValor(undefined);
+      return;
+    }
+    const num = parseInt(raw, 10);
+    setMontoValor(num);
+    setMontoDisplay(num.toLocaleString("es-CO")); // 1.000.000
+  }
 
   const paisInfo = PAISES.find((p) => p.codigo === pais)!;
 
@@ -63,7 +76,7 @@ export default function SelectorParametros({ onAnalizar, cargando }: Props) {
       sectores,
       riesgo,
       horizonte,
-      monto: monto ? Number(monto) : undefined,
+      monto: montoValor,
       modo,
     });
   }
@@ -188,10 +201,11 @@ export default function SelectorParametros({ onAnalizar, cargando }: Props) {
             {paisInfo.simbolo}
           </span>
           <input
-            type="number"
-            value={monto}
-            onChange={(e) => setMonto(e.target.value)}
-            placeholder="Ej: 5,000,000"
+            type="text"
+            inputMode="numeric"
+            value={montoDisplay}
+            onChange={handleMontoChange}
+            placeholder="Ej: 1.000.000"
             className="w-full rounded-xl bg-slate-800 border border-slate-700 pl-8 pr-4 py-3 text-slate-100 focus:border-blue-500 outline-none transition-colors"
           />
         </div>
