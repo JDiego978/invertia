@@ -73,31 +73,25 @@ const APPS_DEFAULT: AppInversion[] = [
 ];
 
 interface Props {
-  apps?: AppInversion[];
+  apps?: AppInversion[]; // ignorado — siempre se usan las hardcodeadas
   pais?: string;
 }
 
-export default function AppsInversion({ apps, pais }: Props) {
+export default function AppsInversion({ apps: _ignoradas, pais }: Props) {
   const [expandida, setExpandida] = useState<string | null>(null);
-  const listaApps = apps && apps.length > 0 ? apps : APPS_DEFAULT;
 
-  // Resolver código ISO a nombre de país para filtrar correctamente
+  // Siempre usar las apps hardcodeadas filtradas por país — nunca las de Groq
+  // (Groq inventaba Robinhood, Investing.com y apps no disponibles en el país)
   const nombrePais = pais ? getPais(pais).nombre : null;
 
-  const filtradas = nombrePais
-    ? listaApps.filter((a) =>
+  const appsFinales = nombrePais
+    ? APPS_DEFAULT.filter((a) =>
         a.disponible_en.some((p) =>
-          p.toLowerCase().includes(nombrePais.toLowerCase()) ||
-          p.toLowerCase() === "global" ||
-          p.toLowerCase().includes("latam")
+          p.toLowerCase() === nombrePais.toLowerCase() ||
+          p.toLowerCase() === "global"
         )
       )
-    : listaApps;
-
-  // Si el filtro dejó 0 resultados (apps de Groq no coincidieron), usar las default filtradas
-  const appsFinales = filtradas.length > 0 ? filtradas : APPS_DEFAULT.filter((a) =>
-    nombrePais ? a.disponible_en.some((p) => p.toLowerCase().includes(nombrePais.toLowerCase()) || p.toLowerCase() === "global") : true
-  );
+    : APPS_DEFAULT;
 
   const ordenadas = [...appsFinales].sort((a, b) => b.puntuacion - a.puntuacion);
 
