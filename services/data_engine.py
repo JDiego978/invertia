@@ -1,6 +1,7 @@
 """
 InvertIA — Backend de Datos (FastAPI)
 Corre con: uvicorn data_engine:app --reload --port 8000
+v2.1: RSI sobre precios originales, backtest pandas, sentimiento null
 """
 
 import os
