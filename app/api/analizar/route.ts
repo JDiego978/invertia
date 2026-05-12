@@ -16,22 +16,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Verificar que el data engine esté activo
-    const backendUrl = process.env.PYTHON_BACKEND_URL ?? "http://localhost:8000";
-    try {
-      const health = await fetch(`${backendUrl}/health`, {
-        signal: AbortSignal.timeout(8_000),
-      });
-      if (!health.ok) throw new Error(`Health check falló: ${health.status}`);
-    } catch (err) {
-      console.error("Data engine no disponible:", err);
-      return NextResponse.json(
-        { error: "Data engine no disponible. El backend Python (Render) no responde. Verifica que esté activo en dashboard.render.com." },
-        { status: 503 }
-      );
-    }
-
-    // 2. Obtener datos reales del data engine Python
+    // Obtener datos reales del data engine Python
     let datosEngine: unknown = {};
     try {
       datosEngine = await fetchDataEngine(params);

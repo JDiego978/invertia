@@ -50,17 +50,28 @@ export default function Home() {
     setPasoActual(0);
 
     const timer = setInterval(() => setSegundos((s) => s + 1), 1000);
-    const pasos = [0, 1, 2, 3, 5];
+    // paso 0 = despertando, 1 = conectando, 2 = técnicos, 3 = IA, 4 = procesando
+    const pasos = [0, 3, 6, 10, 14];
     const pasoTimers = pasos.map((t, i) =>
       setTimeout(() => setPasoActual(i), t * 1000)
     );
 
     try {
+      // 1. Despertar backend (Render hiberna tras 15 min — puede tardar hasta 60s)
+      const wakeRes = await fetch("/api/wake", { signal: AbortSignal.timeout(58_000) });
+      if (!wakeRes.ok) {
+        const w = await wakeRes.json().catch(() => ({}));
+        if ((w as { status?: string }).status === "timeout") {
+          throw new Error("El servidor de datos tardó demasiado en responder. Inténtalo de nuevo en 30 segundos.");
+        }
+      }
+
+      // 2. Análisis real
       const res = await fetch("/api/analizar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params),
-        signal: AbortSignal.timeout(55_000),
+        signal: AbortSignal.timeout(58_000),
       });
 
       if (!res.ok) {
@@ -186,15 +197,15 @@ export default function Home() {
                 <div className="w-full bg-slate-700 rounded-full h-1.5">
                   <div
                     className="h-1.5 rounded-full bg-blue-500 transition-all duration-1000"
-                    style={{ width: `${Math.min((segundos / 15) * 100, 95)}%` }}
+                    style={{ width: `${Math.min((segundos / 90) * 100, 95)}%` }}
                   />
                 </div>
                 {/* Pasos animados */}
                 <div className="space-y-2">
                   {[
+                    { icon: "🔌", texto: "Despertando servidor de datos..." },
                     { icon: "📡", texto: "Conectando con el mercado..." },
                     { icon: "📊", texto: "Obteniendo datos técnicos y fundamentales..." },
-                    { icon: "🧮", texto: "Calculando Sharpe, VaR y Kelly Criterion..." },
                     { icon: "🤖", texto: "Consultando IA para análisis de 3 agentes..." },
                     { icon: "✅", texto: "Procesando resultados..." },
                   ].map((paso, i) => (
