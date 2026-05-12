@@ -127,6 +127,7 @@ function sanitizarDatosEngine(activo: Record<string, unknown>): {
   ticker: string;
   nombre: string;
   tipo: string;
+  sector: string;
 } {
   const m = activo.datos_mercado as Record<string, unknown> | undefined;
   const bt = activo.backtest as Record<string, unknown> | undefined;
@@ -183,8 +184,11 @@ function sanitizarDatosEngine(activo: Record<string, unknown>): {
   const pcrRaw = Number(m?.pcr ?? 1);
   const pcr = isFinite(pcrRaw) && pcrRaw >= 0.3 && pcrRaw <= 3.0 ? pcrRaw : 1.0;
 
+  // score_noticias null = sin API key (no confundir con sentimiento negativo)
+  const scoreNotRaw = nt?.score_noticias;
   const sentimientoEngine = {
-    score_noticias: Number(nt?.score_noticias ?? 0),
+    score_noticias: scoreNotRaw == null ? null : Number(scoreNotRaw),
+    score_reddit: (activo.reddit as Record<string, unknown> | undefined)?.score ?? null,
     pcr,
   };
 
@@ -192,6 +196,9 @@ function sanitizarDatosEngine(activo: Record<string, unknown>): {
   const kellyPct = isFinite(Number(activo.kelly_pct)) ? Number(activo.kelly_pct) : 5;
   const scorePy = sc?.puntuacion_py != null && isFinite(Number(sc.puntuacion_py))
     ? Number(sc.puntuacion_py) : null;
+
+  // Sector: primero del activo directamente, luego del fundamental de yfinance
+  const sectorDef = String(activo.sector ?? (fund as Record<string, unknown>).sector ?? "");
 
   return {
     tecnico,
@@ -204,6 +211,7 @@ function sanitizarDatosEngine(activo: Record<string, unknown>): {
     ticker: String(activo.ticker ?? ""),
     nombre: String(activo.activo ?? activo.ticker ?? ""),
     tipo,
+    sector: sectorDef,
   };
 }
 
@@ -231,6 +239,54 @@ JSON de respuesta:
 {"interpretaciones":[{"ticker":"XXXX","tendencia":"alcista|bajista|lateral","puntuacion_final":0-100,"nivel_confianza":"ALTA_CONVICCION|MODERADA|BAJA","consenso_agentes":"total|mayoria|dividido","señales_contradictorias":["s1"],"resumen":"2 oraciones","por_que_ahora":"cita RSI/Score","agente_riesgo":"cita VaR/Vol","agente_retorno":"cita Sharpe","agente_regimen":"contexto macro","tecnico_interpretacion":"1 oración RSI/MACD","cuantitativo_interpretacion":"1 oración Sharpe/VaR","fundamental_interpretacion":"1 oración PER/ROE","per_vs_sector":"barato|justo|caro","riesgo_activo":"bajo|medio|alto","pros":["p1","p2"],"contras":["c1"],"horizonte_recomendado":"corto|mediano|largo","porcentaje_portafolio":"5-10%","kelly_advertencia":"texto","eventos_futuros":[{"evento":"nombre","fecha":"YYYY-MM-DD","impacto":"alto|medio|bajo","dias_restantes":30,"direccion_historica":"sube X%"}],"insider_signal":"neutral|compra_leve|compra_fuerte|venta_leve|venta_fuerte","fondos_top":["Vanguard"]}],"resumen_mercado":"párrafo mercado","alerta_macro":null,"ciclo_economico":{"fase":"expansion|pico|contraccion|recuperacion","sectores_favorecidos":["s1"],"sectores_desfavorecidos":["s2"]},"por_sector":[{"sector":"nombre","emoji":"💻","mejor_activo":"TICK","razon_lider":"razón","puntuacion_sector":75,"tendencia_sector":"alcista","otros_destacados":["T2"],"riesgo_sector":"medio"}]}
 
 REGLAS: consenso_agentes sin tildes ("mayoria" no "mayoría") | riesgo_activo solo "bajo"/"medio"/"alto" | NO inventar tickers | Solo JSON`;
+}
+
+// ─── Construye por_sector desde los activos reales analizados ─────────────────
+function construirPorSector(
+  activosSanitizados: ReturnType<typeof sanitizarDatosEngine>[],
+  oportunidades: { ticker: string; puntuacion_final: number; tendencia: string; riesgo: string }[]
+): ResultadoAnalisis["por_sector"] {
+  const SECTOR_EMOJI: Record<string, string> = {
+    "Tecnología": "💻", "Finanzas": "🏦", "Energía": "⚡", "Salud": "🏥",
+    "Consumo": "🛒", "Industria": "🏭", "Minería": "⛏️", "Automotriz": "🚗",
+    "Cripto": "🪙", "Telecom": "📡", "Inmueble": "🏠",
+  };
+
+  // Agrupar activos por sector
+  const grupos: Record<string, { ticker: string; nombre: string; puntuacion: number; tendencia: string; riesgo: string }[]> = {};
+  for (const a of activosSanitizados) {
+    const sector = a.sector || "General";
+    if (!grupos[sector]) grupos[sector] = [];
+    const op = oportunidades.find((o) => o.ticker === a.ticker);
+    grupos[sector].push({
+      ticker: a.ticker,
+      nombre: a.nombre,
+      puntuacion: op?.puntuacion_final ?? (a.scorePy ? a.scorePy * 10 : 50),
+      tendencia: op?.tendencia ?? "lateral",
+      riesgo: op?.riesgo ?? "medio",
+    });
+  }
+
+  return Object.entries(grupos).map(([sector, activos]) => {
+    const ordenados = [...activos].sort((a, b) => b.puntuacion - a.puntuacion);
+    const mejor = ordenados[0];
+    const prom = Math.round(activos.reduce((s, a) => s + a.puntuacion, 0) / activos.length);
+    const alcistas = activos.filter((a) => a.tendencia === "alcista").length;
+    const tendencia = alcistas > activos.length / 2 ? "alcista" : alcistas === 0 ? "bajista" : "lateral";
+    const riesgoSector = activos.some((a) => a.riesgo === "alto") ? "alto"
+      : activos.every((a) => a.riesgo === "bajo") ? "bajo" : "medio";
+
+    return {
+      sector,
+      emoji: SECTOR_EMOJI[sector] ?? "📊",
+      mejor_activo: mejor.ticker,
+      razon_lider: `${mejor.nombre} lidera con puntuación ${mejor.puntuacion}/100`,
+      puntuacion_sector: prom,
+      tendencia_sector: tendencia as "alcista" | "bajista" | "lateral",
+      otros_destacados: ordenados.slice(1).map((a) => a.ticker),
+      riesgo_sector: riesgoSector as "bajo" | "medio" | "alto",
+    };
+  });
 }
 
 // ─── Ensamblador: combina datos engine + interpretaciones Groq ────────────────
@@ -330,8 +386,8 @@ function ensamblarResultado(
         interpretacion: String(interp.fundamental_interpretacion ?? "Sin datos fundamentales."),
       },
       sentimiento: {
-        score_noticias: Number(a.sentimientoEngine.score_noticias ?? 0),
-        score_reddit: 0,
+        score_noticias: a.sentimientoEngine.score_noticias != null ? Number(a.sentimientoEngine.score_noticias) : 0,
+        score_reddit: a.sentimientoEngine.score_reddit != null ? Number(a.sentimientoEngine.score_reddit) : 0,
         google_trend_score: 50,
         alerta_hype: false,
         divergencia: "neutral",
@@ -355,7 +411,9 @@ function ensamblarResultado(
       },
       kelly: {
         porcentaje_recomendado: Math.round(a.kellyPct * 10) / 10,
-        monto_local: monto > 0 ? `${kellyMonto.toLocaleString("es-CO")} ${params.moneda}` : undefined,
+        monto_local: monto > 0
+          ? `${kellyMonto.toLocaleString("es-CO", { useGrouping: true })} ${params.moneda}`
+          : undefined,
         advertencia: String(interp.kelly_advertencia ?? "Usar half-Kelly conservador"),
       },
       eventos_futuros: Array.isArray(interp.eventos_futuros) ? interp.eventos_futuros as Oportunidad["eventos_futuros"] : [],
@@ -375,12 +433,23 @@ function ensamblarResultado(
     curva_rendimientos: Number(macro.curva_rendimientos ?? 0.1),
   } : undefined;
 
+  // por_sector construido desde activos reales — Groq devuelve placeholders
+  const porSector = construirPorSector(
+    activosSanitizados,
+    oportunidades.map((o) => ({
+      ticker: o.ticker,
+      puntuacion_final: o.puntuacion_final,
+      tendencia: o.tendencia,
+      riesgo: o.riesgo,
+    }))
+  );
+
   return {
     resumen_mercado: meta.resumen_mercado,
     alerta_macro: meta.alerta_macro ?? undefined,
     ciclo_economico: meta.ciclo_economico,
     oportunidades,
-    por_sector: meta.por_sector ?? [],
+    por_sector: porSector,
     apps_recomendadas: getAppsParaPais(params.pais, params.tipos),
     timestamp: new Date().toISOString(),
     parametros: params,

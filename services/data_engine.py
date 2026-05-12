@@ -133,23 +133,24 @@ def get_stock_data(ticker: str, rf_rate_diaria: float = 0.000173) -> dict:
         if hist.empty:
             return _stock_fallback(ticker)
 
-        prices_clean = wavelet_denoise(hist["Close"].values)
-        df = pd.DataFrame({"Close": prices_clean}, index=hist.index)
-
-        rsi_series = calcular_rsi(df["Close"])
-        macd_line, macd_signal = calcular_macd(df["Close"])
-        bb_upper, bb_lower = calcular_bb(df["Close"])
-        sma50  = df["Close"].rolling(50).mean()
-        sma200 = df["Close"].rolling(200).mean()
+        # RSI/MACD/BB con precios originales — wavelet distorsiona momentum
+        prices_orig = hist["Close"]
+        rsi_series = calcular_rsi(prices_orig)
+        macd_line, macd_signal = calcular_macd(prices_orig)
+        bb_upper, bb_lower = calcular_bb(prices_orig)
+        sma50  = prices_orig.rolling(50).mean()
+        sma200 = prices_orig.rolling(200).mean()
 
         rsi_val  = float(rsi_series.iloc[-1]) if not np.isnan(rsi_series.iloc[-1]) else 50.0
+        # Clamp RSI a rango válido (wavelet puede producir extremos)
+        rsi_val  = max(0.0, min(100.0, rsi_val))
         macd_val = float(macd_line.iloc[-1])
         macd_sig = float(macd_signal.iloc[-1])
         bb_u     = float(bb_upper.iloc[-1])
         bb_l     = float(bb_lower.iloc[-1])
-        precio   = float(prices_clean[-1])
+        precio   = float(prices_orig.iloc[-1])
 
-        # Métricas cuantitativas
+        # Métricas cuantitativas (returns sobre precios originales)
         returns = hist["Close"].pct_change().dropna()
         sharpe  = float((returns.mean() - rf_rate_diaria) / returns.std() * np.sqrt(252))
         var_95  = float(np.percentile(returns, 5) * 100)
@@ -396,7 +397,7 @@ def analizar_sentimiento_finbert(textos: list) -> float:
 # ─── Módulo G: Noticias Finnhub ──────────────────────────────────────────────
 def get_news_sentiment(ticker: str) -> dict:
     if not FINNHUB_KEY:
-        return {"score_noticias": 0, "num_noticias": 0, "earnings_proximos": [], "sentiment_buzz": 0}
+        return {"score_noticias": None, "num_noticias": 0, "earnings_proximos": [], "sentiment_buzz": 0}
     try:
         import finnhub
         fc = finnhub.Client(api_key=FINNHUB_KEY)
@@ -428,7 +429,7 @@ def get_news_sentiment(ticker: str) -> dict:
 # ─── Módulo H: Reddit PRAW ───────────────────────────────────────────────────
 def get_reddit_sentiment(ticker: str, empresa: str = "") -> dict:
     if not REDDIT_CLIENT_ID:
-        return {"score": 0, "volumen_menciones": 0, "señal_volumen": "bajo"}
+        return {"score": None, "volumen_menciones": 0, "señal_volumen": "bajo"}
     try:
         import praw
         reddit = praw.Reddit(
@@ -511,24 +512,60 @@ def convertir_moneda(monto: float, de: str, a: str = "USD") -> float:
         _fx_cache[cache_key] = tasa
         return round(monto * tasa, 2)
 
-# ─── Módulo K: Backtesting vectorbt ──────────────────────────────────────────
+# ─── Módulo K: Backtesting con pandas (RSI mean-reversion) ───────────────────
 def backtest_señal(ticker: str) -> dict:
     try:
-        import vectorbt as vbt
-        price = vbt.YFData.download(ticker, period="2y").get("Close")
-        rsi_vbt = vbt.RSI.run(price, window=14)
-        entries = rsi_vbt.rsi_below(30)
-        exits   = rsi_vbt.rsi_above(70)
-        pf = vbt.Portfolio.from_signals(price, entries, exits, freq="D")
-        win_rate = float(pf.trades.win_rate) if len(pf.trades.records) > 0 else 0.5
+        stock = _yf_ticker(ticker)
+        hist = stock.history(period="2y")
+        if hist.empty or len(hist) < 60:
+            raise ValueError("datos insuficientes")
+
+        closes = hist["Close"]
+        rsi = calcular_rsi(closes)
+
+        # Simular entradas en RSI<30, salidas en RSI>70 o stop 15 días
+        trades = []
+        in_trade = False
+        entry_price = 0.0
+        entry_idx = 0
+
+        for i in range(1, len(closes)):
+            if not in_trade and rsi.iloc[i] < 30:
+                in_trade = True
+                entry_price = float(closes.iloc[i])
+                entry_idx = i
+            elif in_trade:
+                dias = i - entry_idx
+                exit_now = rsi.iloc[i] > 70 or dias >= 15
+                if exit_now:
+                    ret = (float(closes.iloc[i]) - entry_price) / entry_price
+                    trades.append(ret)
+                    in_trade = False
+
+        if len(trades) < 5:
+            raise ValueError("pocas señales para backtest")
+
+        wins = [t for t in trades if t > 0]
+        win_rate = len(wins) / len(trades)
+        avg_ret = float(np.mean(trades))
+        std_ret = float(np.std(trades)) or 0.01
+        sharpe_bt = round((avg_ret / std_ret) * np.sqrt(252 / 15), 3)
+
+        # Max drawdown sobre retornos acumulados
+        cum = np.cumprod([1 + t for t in trades])
+        peak = np.maximum.accumulate(cum)
+        drawdowns = (cum - peak) / peak
+        max_dd = float(np.min(drawdowns)) * 100
+
         return {
-            "win_rate":       round(win_rate, 3),
-            "win_rate_pct":   round(win_rate * 100, 1),
-            "sharpe":         round(float(pf.sharpe_ratio()), 3),
-            "max_drawdown":   round(float(pf.max_drawdown()), 3),
-            "max_drawdown_pct": round(float(pf.max_drawdown()) * 100, 1),
-            "retorno_total":  round(float(pf.total_return()), 3),
-            "señal_validada": win_rate > 0.52,
+            "win_rate":         round(win_rate, 3),
+            "win_rate_pct":     round(win_rate * 100, 1),
+            "sharpe":           sharpe_bt,
+            "max_drawdown":     round(max_dd / 100, 3),
+            "max_drawdown_pct": round(max_dd, 1),
+            "retorno_total":    round(float(np.sum(trades)), 3),
+            "señal_validada":   win_rate > 0.52,
+            "num_trades":       len(trades),
         }
     except Exception as e:
         logger.warning(f"Backtest no disponible para {ticker}: {e}")
