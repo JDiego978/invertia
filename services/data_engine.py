@@ -119,23 +119,33 @@ def calcular_bb(prices: pd.Series, window: int = 20):
 
 def _yf_ticker(ticker: str):
     import yfinance as yf
-    t = yf.Ticker(ticker)
-    try:
-        t.session = _yf_session
-    except Exception:
-        pass
+    t = yf.Ticker(ticker, session=_yf_session)
     return t
+
+
+def _yf_download(ticker: str, period: str = "1y") -> "pd.DataFrame":
+    """Download con reintentos — Yahoo Finance bloquea cloud IPs ocasionalmente."""
+    import yfinance as yf
+    for attempt in range(3):
+        try:
+            df = yf.download(ticker, period=period, progress=False,
+                             session=_yf_session, auto_adjust=True)
+            if not df.empty:
+                return df
+        except Exception as e:
+            logger.warning(f"yf.download {ticker} intento {attempt+1}: {e}")
+            time.sleep(2 * (attempt + 1))
+    return pd.DataFrame()
 
 
 def get_stock_data(ticker: str, rf_rate_diaria: float = 0.000173) -> dict:
     try:
-        stock = _yf_ticker(ticker)
-        hist = stock.history(period="1y")
+        hist = _yf_download(ticker, period="1y")
         if hist.empty:
             return _stock_fallback(ticker)
 
         # RSI/MACD/BB con precios originales — wavelet distorsiona momentum
-        prices_orig = hist["Close"]
+        prices_orig = hist["Close"].squeeze()
         rsi_series = calcular_rsi(prices_orig)
         macd_line, macd_signal = calcular_macd(prices_orig)
         bb_upper, bb_lower = calcular_bb(prices_orig)
@@ -152,13 +162,18 @@ def get_stock_data(ticker: str, rf_rate_diaria: float = 0.000173) -> dict:
         precio   = float(prices_orig.iloc[-1])
 
         # Métricas cuantitativas (returns sobre precios originales)
-        returns = hist["Close"].pct_change().dropna()
+        returns = hist["Close"].squeeze().pct_change().dropna()
         sharpe  = float((returns.mean() - rf_rate_diaria) / returns.std() * np.sqrt(252))
         var_95  = float(np.percentile(returns, 5) * 100)
         vol_ann = float(returns.std() * np.sqrt(252) * 100)
 
-        # Fundamentales
-        info = stock.info
+        # Fundamentales via Ticker.info (usa _yf_ticker con session)
+        stock = _yf_ticker(ticker)
+        info = {}
+        try:
+            info = stock.info or {}
+        except Exception:
+            pass
         fundamentales = {
             "per":                  info.get("trailingPE"),
             "peg":                  info.get("pegRatio"),
