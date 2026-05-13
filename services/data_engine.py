@@ -357,45 +357,7 @@ def get_insider_data(ticker: str) -> dict:
             "_fuente": "estimado",
         }
 
-# ─── Módulo F: FinBERT NLP Local ─────────────────────────────────────────────
-_finbert_pipeline = None
-
-
-def get_finbert():
-    global _finbert_pipeline
-    if _finbert_pipeline is None:
-        try:
-            from transformers import pipeline as hf_pipeline
-            logger.info("Cargando FinBERT (primera vez ~440MB)...")
-            _finbert_pipeline = hf_pipeline(
-                "sentiment-analysis",
-                model="ProsusAI/finbert",
-                tokenizer="ProsusAI/finbert",
-                device=-1,
-            )
-            logger.info("FinBERT listo.")
-        except Exception as e:
-            logger.warning(f"FinBERT no disponible: {e}")
-    return _finbert_pipeline
-
-
-def analizar_sentimiento_finbert(textos: list) -> float:
-    if not textos:
-        return 0.0
-    pipe = get_finbert()
-    if pipe is None:
-        return 0.0
-    try:
-        resultados = pipe(textos[:20], truncation=True, max_length=512)
-        positivos = sum(1 for r in resultados if r["label"] == "positive")
-        negativos = sum(1 for r in resultados if r["label"] == "negative")
-        total = len(resultados)
-        return round(((positivos - negativos) / total) * 100, 2) if total > 0 else 0.0
-    except Exception as e:
-        logger.warning(f"Error FinBERT: {e}")
-        return 0.0
-
-# ─── Módulo G: Noticias Finnhub ──────────────────────────────────────────────
+# ─── Módulo G: Noticias Finnhub (sin FinBERT — usa score nativo de Finnhub) ───
 def get_news_sentiment(ticker: str) -> dict:
     if not FINNHUB_KEY:
         return {"score_noticias": None, "num_noticias": 0, "earnings_proximos": [], "sentiment_buzz": 0}
@@ -403,29 +365,35 @@ def get_news_sentiment(ticker: str) -> dict:
         import finnhub
         fc = finnhub.Client(api_key=FINNHUB_KEY)
         hoy = datetime.now().strftime("%Y-%m-%d")
-        hace_2 = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
+        hace_7 = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         en_30  = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
 
-        noticias = fc.company_news(ticker, _from=hace_2, to=hoy)
-        textos = [n["headline"] + " " + n.get("summary", "") for n in noticias[:20]]
-        score = analizar_sentimiento_finbert(textos)
-
+        # Score de sentimiento nativo de Finnhub (bearishPct, bullishPct)
         sentiment_raw = fc.news_sentiment(ticker)
-        buzz = sentiment_raw.get("buzz", {}).get("buzz", 0) if isinstance(sentiment_raw, dict) else 0
+        bull = 0.0
+        bear = 0.0
+        buzz = 0.0
+        if isinstance(sentiment_raw, dict):
+            bull = float(sentiment_raw.get("sentiment", {}).get("bullishPercent", 0) or 0)
+            bear = float(sentiment_raw.get("sentiment", {}).get("bearishPercent", 0) or 0)
+            buzz = float(sentiment_raw.get("buzz", {}).get("buzz", 0) or 0)
+        # score_noticias: -100 a +100 (positivo = más bulls que bears)
+        score = round((bull - bear) * 100, 1)
 
+        noticias = fc.company_news(ticker, _from=hace_7, to=hoy)
         earnings = fc.earnings_calendar(_from=hoy, to=en_30, symbol=ticker)
         earnings_list = earnings.get("earningsCalendar", []) if isinstance(earnings, dict) else []
 
-        time.sleep(0.5)  # respetar rate limit 60 req/min
+        time.sleep(0.3)
         return {
-            "score_noticias":   score,
-            "num_noticias":     len(noticias),
+            "score_noticias":    score,
+            "num_noticias":      len(noticias),
             "earnings_proximos": earnings_list[:3],
-            "sentiment_buzz":   buzz,
+            "sentiment_buzz":    buzz,
         }
     except Exception as e:
         logger.warning(f"Finnhub error para {ticker}: {e}")
-        return {"score_noticias": 0, "num_noticias": 0, "earnings_proximos": [], "sentiment_buzz": 0}
+        return {"score_noticias": None, "num_noticias": 0, "earnings_proximos": [], "sentiment_buzz": 0}
 
 # ─── Módulo H: Reddit PRAW ───────────────────────────────────────────────────
 def get_reddit_sentiment(ticker: str, empresa: str = "") -> dict:
@@ -447,11 +415,12 @@ def get_reddit_sentiment(ticker: str, empresa: str = "") -> dict:
             except Exception:
                 continue
 
-        if not menciones:
-            return {"score": 0, "volumen_menciones": 0, "señal_volumen": "bajo"}
-
-        score = analizar_sentimiento_finbert(menciones[:20])
         vol = len(menciones)
+        if vol == 0:
+            return {"score": None, "volumen_menciones": 0, "señal_volumen": "bajo"}
+
+        # Sin FinBERT: score basado en volumen de menciones normalizado (0-100)
+        score = min(round(vol * 2.0, 1), 100.0)
         return {
             "score": score,
             "volumen_menciones": vol,
@@ -459,7 +428,7 @@ def get_reddit_sentiment(ticker: str, empresa: str = "") -> dict:
         }
     except Exception as e:
         logger.warning(f"Reddit error: {e}")
-        return {"score": 0, "volumen_menciones": 0, "señal_volumen": "bajo"}
+        return {"score": None, "volumen_menciones": 0, "señal_volumen": "bajo"}
 
 # ─── Módulo I: Google Trends ─────────────────────────────────────────────────
 def get_google_trends(ticker: str) -> dict:
