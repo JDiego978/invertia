@@ -119,38 +119,21 @@ def calcular_bb(prices: pd.Series, window: int = 20):
 
 def _yf_ticker(ticker: str):
     import yfinance as yf
-    t = yf.Ticker(ticker, session=_yf_session)
-    return t
+    return yf.Ticker(ticker)
 
 
 def _yf_download(ticker: str, period: str = "1y") -> "pd.DataFrame":
-    """Descarga precios. Fuente primaria: Stooq (no bloquea cloud). Fallback: yfinance."""
-    end = datetime.now()
-    days = 365 if period == "1y" else 730
-    start = end - timedelta(days=days)
-
-    # Fuente 1: Stooq via pandas_datareader (sin API key, funciona desde cloud)
-    try:
-        import pandas_datareader.data as web
-        df = web.DataReader(ticker, "stooq", start, end)
-        if not df.empty:
-            df = df.sort_index()  # Stooq devuelve orden descendente
-            df.columns = [c.capitalize() for c in df.columns]
-            if "Close" in df.columns:
+    """Descarga precios con yfinance (sin session custom — versiones >=0.2.37 manejan crumb solo)."""
+    import yfinance as yf
+    for attempt in range(3):
+        try:
+            df = yf.download(ticker, period=period, progress=False, auto_adjust=True)
+            if not df.empty:
                 return df
-    except Exception as e:
-        logger.warning(f"Stooq falló para {ticker}: {e}")
-
-    # Fuente 2: yfinance (puede fallar en cloud por rate limit de Yahoo)
-    try:
-        import yfinance as yf
-        df = yf.download(ticker, start=start, end=end, progress=False,
-                         session=_yf_session, auto_adjust=True)
-        if not df.empty:
-            return df
-    except Exception as e:
-        logger.warning(f"yfinance falló para {ticker}: {e}")
-
+        except Exception as e:
+            logger.warning(f"yf.download {ticker} intento {attempt + 1}: {e}")
+            if attempt < 2:
+                time.sleep(3)
     return pd.DataFrame()
 
 
@@ -516,12 +499,11 @@ def convertir_moneda(monto: float, de: str, a: str = "USD") -> float:
 # ─── Módulo K: Backtesting con pandas (RSI mean-reversion) ───────────────────
 def backtest_señal(ticker: str) -> dict:
     try:
-        stock = _yf_ticker(ticker)
-        hist = stock.history(period="2y")
+        hist = _yf_download(ticker, period="2y")
         if hist.empty or len(hist) < 60:
             raise ValueError("datos insuficientes")
 
-        closes = hist["Close"]
+        closes = hist["Close"].squeeze()
         rsi = calcular_rsi(closes)
 
         # Simular entradas en RSI<30, salidas en RSI>70 o stop 15 días
@@ -543,7 +525,7 @@ def backtest_señal(ticker: str) -> dict:
                     trades.append(ret)
                     in_trade = False
 
-        if len(trades) < 5:
+        if len(trades) < 2:
             raise ValueError("pocas señales para backtest")
 
         wins = [t for t in trades if t > 0]
