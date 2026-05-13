@@ -834,10 +834,34 @@ async def analyze(params: AnalysisParams):
             datos_activo["score_py"] = calcular_score_final(datos_activo, macro)
             resultados.append(datos_activo)
         except Exception as e:
-            logger.error(f"Error procesando {activo.get('ticker', '?')}: {e}")
+            import traceback
+            logger.error(f"Error procesando {activo.get('ticker', '?')}: {e}\n{traceback.format_exc()}")
             continue
 
-    return {"activos": resultados, "macro": macro}
+    return {"activos": resultados, "macro": macro, "_errores": len(activos) - len(resultados)}
+
+
+@app.get("/test/{ticker}")
+async def test_ticker(ticker: str):
+    import traceback
+    result: dict = {"ticker": ticker}
+    try:
+        macro = get_macro_data()
+        mercado = get_stock_data(ticker, macro["rf_rate_diaria"])
+        result["mercado_ok"] = True
+        result["rsi"] = mercado.get("rsi")
+        result["sharpe"] = mercado.get("sharpe")
+    except Exception as e:
+        result["mercado_error"] = str(e)
+        result["mercado_tb"] = traceback.format_exc()[-800:]
+    try:
+        bt = backtest_señal(ticker)
+        result["backtest_ok"] = True
+        result["win_rate"] = bt.get("win_rate_pct")
+    except Exception as e:
+        result["backtest_error"] = str(e)
+        result["backtest_tb"] = traceback.format_exc()[-500:]
+    return result
 
 
 @app.get("/price/{ticker}")
