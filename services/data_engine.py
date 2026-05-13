@@ -775,12 +775,43 @@ def calcular_score_final(datos: dict, macro: dict) -> dict:
     }
 
 
+@app.get("/debug")
+async def debug():
+    """Diagnóstico rápido: prueba yfinance con AAPL."""
+    import traceback
+    result: dict = {}
+    try:
+        import yfinance as yf
+        t = yf.Ticker("AAPL")
+        hist = t.history(period="5d")
+        result["yfinance"] = "ok" if not hist.empty else "empty"
+        result["rows"] = len(hist)
+    except Exception as e:
+        result["yfinance"] = f"ERROR: {e}"
+        result["traceback"] = traceback.format_exc()[-500:]
+    try:
+        macro = get_macro_data()
+        result["macro"] = macro.get("_fuente", "real")
+    except Exception as e:
+        result["macro"] = f"ERROR: {e}"
+    try:
+        from data_engine import determinar_activos, AnalysisParams as AP
+        params_test = AP(pais="CO", tipos=["accion"], modo="rapido")
+        activos = determinar_activos(params_test)
+        result["activos_count"] = len(activos)
+        result["activos"] = [a["ticker"] for a in activos]
+    except Exception as e:
+        result["activos"] = f"ERROR: {e}"
+    return result
+
+
 @app.post("/analyze")
 async def analyze(params: AnalysisParams):
     logger.info(f"Analizando: tipos={params.tipos}, pais={params.pais}, modo={params.modo}")
     macro = get_macro_data()
     rf = macro["rf_rate_diaria"]
     activos = determinar_activos(params)
+    logger.info(f"Activos a analizar: {[a['ticker'] for a in activos]}")
 
     resultados = []
     for activo in activos:
